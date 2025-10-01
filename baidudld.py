@@ -175,6 +175,9 @@ def load_task_record(category:str="downloading") -> dict[str,dict]:
 
 # 开始下载任务，更新任务列表
 def download_multiple_files(argv:list[str], log_level=logging.INFO) -> bool:
+    if not test_login():
+        return False
+    
     ret = True
     tasks = load_task_record()
     for a in argv:
@@ -632,7 +635,7 @@ def run_as_daemon():
     signal.signal(signal.SIGINT, handler)
     while True:
         sleep(15)
-        if load_task_record() and not test_run() and test_login():
+        if load_task_record() and not test_run():
             resume_task(logging.WARN)
 
 
@@ -656,7 +659,7 @@ if __name__ == "__main__":
     argv = read_global_options(sys.argv)
     get_savedir()
 
-    if len(argv) > 1 and test_login():
+    if len(argv) > 1:
         match argv[1]:
             case "start":
                 if len(argv) >= 3:
