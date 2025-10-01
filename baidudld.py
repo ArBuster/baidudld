@@ -601,6 +601,25 @@ def clean_tasks():
     print("tasks cleaned.")
 
 
+def test_login() -> bool:
+    cmd = ("baidupcs", "quota")
+    ps_ret = subprocess.run(
+        cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, encoding="utf8")
+
+    ret = False
+    if re.search(R"总空间:\s*\d+\.?\d*(G|T)B", ps_ret.stdout):
+        ret = True
+    else:
+        output = "baidupcs is not logged in.\nbaidupcs quota: %s\n" % ps_ret.stdout
+        if Global_Options["daemon"]:
+            with open(os.path.join(SAVE_DIR, "baidupcs_not_login.txt"), "w") as f:
+                f.write(output)
+        else:
+            print(output)
+
+    return ret
+
+
 # 以守护进程方式运行
 def run_as_daemon():
     def handler(signum, frame):
@@ -613,7 +632,7 @@ def run_as_daemon():
     signal.signal(signal.SIGINT, handler)
     while True:
         sleep(15)
-        if load_task_record() and not test_run():
+        if load_task_record() and not test_run() and test_login():
             resume_task(logging.WARN)
 
 
@@ -637,7 +656,7 @@ if __name__ == "__main__":
     argv = read_global_options(sys.argv)
     get_savedir()
 
-    if len(argv) > 1:
+    if len(argv) > 1 and test_login():
         match argv[1]:
             case "start":
                 if len(argv) >= 3:
