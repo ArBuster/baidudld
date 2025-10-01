@@ -31,7 +31,7 @@ def print_usage():
     print("\n    option:")
     print("\n    --daemon: run as daemon")
     print("\n    --verbose: write baidupcs output to file")
-    print("\n    command: [ start | stop | resume | list | remove | restore | clean ]")
+    print("\n    command: [ start | stop | resume | list | remove | restore | clean | login-status ]")
     print("\n    download multiple files: start [absoulte_path_1] [absoulte_path_2] ...")
     print("\n    start -e m-n absoulte_path(%d): expand filename suffix, download same filename with serial number m to n")
     print("\n    eg: start -e 1-3 xxx.rar.part%d means download xxx.rar.part1, part2, part3")
@@ -175,7 +175,7 @@ def load_task_record(category:str="downloading") -> dict[str,dict]:
 
 # 开始下载任务，更新任务列表
 def download_multiple_files(argv:list[str], log_level=logging.INFO) -> bool:
-    if not test_login():
+    if not test_login(log_level):
         return False
     
     ret = True
@@ -604,21 +604,24 @@ def clean_tasks():
     print("tasks cleaned.")
 
 
-def test_login() -> bool:
+def test_login(log_level=logging.INFO) -> bool:
+    logger.setLevel(log_level)
+
     cmd = ("baidupcs", "quota")
     ps_ret = subprocess.run(
         cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, encoding="utf8")
 
     ret = False
-    if re.search(R"总空间:\s*\d+\.?\d*(G|T)B", ps_ret.stdout):
+    if re.search(R"总空间:\s*\d+\.?\d*[GT]B", ps_ret.stdout):
         ret = True
+        logger.debug("login status: OK")
     else:
-        output = "baidupcs is not logged in.\nbaidupcs quota: %s\n" % ps_ret.stdout
+        output = "baidupcs is not logged in.\nbaidupcs quota:\n%s" % ps_ret.stdout
         if Global_Options["daemon"]:
             with open(os.path.join(SAVE_DIR, "baidupcs_not_login.txt"), "w") as f:
                 f.write(output)
         else:
-            print(output)
+            logger.critical(output)
 
     return ret
 
@@ -692,6 +695,8 @@ if __name__ == "__main__":
                     print_usage()
             case "clean":
                 clean_tasks()
+            case "login-status":
+                test_login(logging.DEBUG)
             case _:
                 print_usage()
     else:
