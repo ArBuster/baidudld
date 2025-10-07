@@ -9,7 +9,7 @@ Usage: baidudld [ option ] command
     option:  
     --daemon: run as daemon  
     --verbose: write baidupcs output to file  
-    command: [ start | stop | resume | list | remove | restore | clean ]  
+    command: [ start | stop | resume | list | remove | restore | clean | login-status ]  
     download multiple files: start [absoulte_path_1] [absoulte_path_2] ...  
     start -e m-n absoulte_path(%d): expand filename suffix, download same filename with serial number m to n  
     eg: start -e 1-3 xxx.rar.part%d means download xxx.rar.part1, part2, part3  
