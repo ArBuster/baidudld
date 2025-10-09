@@ -33,10 +33,10 @@ def print_usage():
     print("\n    --verbose: write baidupcs output to file")
     print("\n    command: [ start | stop | resume | list | remove | restore | clean | login-status ]")
     print("\n    download multiple files: start [absoulte_path_1] [absoulte_path_2] ...")
-    print("\n    start -e m-n absoulte_path(%d): expand filename suffix, download same filename with serial number m to n")
-    print("\n    eg: start -e 1-3 xxx.rar.part%d means download xxx.rar.part1, part2, part3")
-    print("\n    start -e 1,3,5 absoulte_path(%d): expand filename suffix, download same filename with suffix 1,3,5")
-    print("\n    eg: start -e 1,3,5 xxx.rar.part%d means download xxx.rar.part1, part3, part5")
+    print("\n    start -e m-n/len absoulte_path${%d}: expand filename suffix, download same filename with serial number m to n. len is num string length, less than len will filling zero at front")
+    print("\n    eg: start -e 1-15/2 xxx.rar.part${%d} means download xxx.rar.part01, part02, ..., part15")
+    print("\n    start -e 1,3,5 absoulte_path${%d}: expand filename suffix, download same filename with suffix 1,3,5")
+    print("\n    eg: start -e 1,3,5 xxx.rar.part${%d} means download xxx.rar.part1, part3, part5")
     print("\n    list [ -d | -r ] downloading | removed tasks")
     print("\n    remove/restore [-all -e n-m | 1,2,3] (task1 task2 ...)\n")
 
@@ -117,17 +117,28 @@ def start_task(argv:list[str]) -> bool:
 # 展开同名文件数字后缀
 def expand_suffix(argv:list[str]) -> list[str]:
     files_expand = list()
-    if len(argv) == 2 and argv[1].count("%d") == 1:
-        suffix_1 = R"^(\d+)-(\d+)$"
-        suffix_2 = R"^(\d+,)+\d$"
+    if len(argv) == 2 and argv[1].count("${%d}") == 1:
+        suffix_1 = R"^(\d+)-(\d+)(/\d+)?$"
+        suffix_2 = R"^(\d+,)+\d+(/\d+)?$"
 
         regex = re.match(suffix_1, argv[0]) or re.match(suffix_2, argv[0])
         if regex:
-            if len(regex.groups()) == 2 and int(regex.group(1)) < int(regex.group(2)):
+            if "-" in argv[0] and int(regex.group(1)) < int(regex.group(2)):
+                num_len = int(regex.group(3)[1:]) if regex.group(3) else 0
                 for i in range(int(regex.group(1)), int(regex.group(2))+1):
-                    files_expand.append(argv[1].replace("%d", str(i)))
-            else:
-                files_expand=[argv[1].replace("%d", i) for i in argv[0].split(',')]
+                    num = str(i)
+                    add_zero = num_len - len(num)
+                    if add_zero > 0:
+                        num = "0" * add_zero + num
+                    files_expand.append(argv[1].replace("${%d}", num))
+
+            elif "," in argv[0]:
+                num_len = int(regex.group(2)[1:]) if regex.group(2) else 0
+                for num in argv[0].split('/')[0].split(','):
+                    add_zero = num_len - len(num)
+                    if add_zero > 0:
+                        num = "0" * add_zero + num
+                    files_expand.append(argv[1].replace("${%d}", num))
 
     if not files_expand:
         print_usage()
@@ -511,7 +522,7 @@ def file_md5_hash(tasks:dict[str, dict]) -> dict[str, dict]:
         md5_hash = hashlib.md5()
         if info["type"] == "文件":
             with open(info["path"], "rb") as f:
-                for chunk in iter(lambda: f.read(4096), b""):
+                for chunk in iter(lambda: f.read(4194304), b''):
                     md5_hash.update(chunk)
             info["hash_verify"] = md5_hash.hexdigest().lower()
         else:
