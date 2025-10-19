@@ -299,7 +299,7 @@ def get_downloading_save_path(tasks:dict[str,dict]) -> dict[str,dict]:
                         if value["type"] == "目录":
                             value["sub_files"] = files_info
                             for sub_task, sub_v in value["sub_files"].items():
-                                sub_v["path"] = value["path"] + '/' + sub_v["filename"]
+                                sub_v["path"] = value["path"] + sub_task[len(task):]
                         else:
                             value.update(files_info)
                         break
