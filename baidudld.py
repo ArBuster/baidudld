@@ -19,7 +19,7 @@ Global_Options = {
     "verbose": False
 }
 
-MAX_SLEEP_TIME=5
+TEST_TIMEOUT=3
 SAVE_DIR=""
 RECORD_PATH=os.path.join(os.environ["HOME"], ".config/BaiduPCS-Go")
 
@@ -42,7 +42,7 @@ def print_usage():
 
 
 def test_run() -> tuple:
-    cmd = ("pgrep", "-f", "baidupcs d")
+    cmd = ("pgrep", "-f", "baidupcs d ")
     ps_ret = subprocess.run(
         cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, encoding="utf8")
 
@@ -79,7 +79,7 @@ def stop_task(log_level=logging.INFO) -> bool:
             os.kill(pid, signal.SIGINT)
 
         success = False
-        for i in range(0, MAX_SLEEP_TIME):
+        for i in range(0, TEST_TIMEOUT):
             sleep(1)
             if not test_run():
                 success = True
@@ -92,7 +92,7 @@ def stop_task(log_level=logging.INFO) -> bool:
             logger.info("baidupcs stop success.")
         else:
             logger.error("baidupcs stop failed. use SIGKILL(kill -9) retry ...")
-            for i in range(0, MAX_SLEEP_TIME):
+            for i in range(0, TEST_TIMEOUT):
                 sleep(1)
                 if not test_run():
                     logger.error("baidupcs SIGKILL(kill -9) success.")
@@ -224,7 +224,7 @@ def download_multiple_files(argv:list[str], log_level=logging.INFO) -> bool:
         proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
     success = False
-    for i in range(0, MAX_SLEEP_TIME):
+    for i in range(0, TEST_TIMEOUT):
         sleep(1)
         if test_run():
             success = True
@@ -287,9 +287,9 @@ def get_downloading_save_path(tasks:dict[str,dict]) -> dict[str,dict]:
             proc = subprocess.Popen(
                 cmd, stdout=f_temp, stderr=subprocess.STDOUT, encoding="utf8")
 
-            with open(baidudld_temp, "r") as f:
-                for i in range(0, MAX_SLEEP_TIME):
-                    sleep(1)
+            for i in range(0, 10):
+                sleep(1)
+                with open(baidudld_temp, "r") as f:
                     proc_output = f.read()
                     reg_path, reg_type = re_path.search(proc_output), re_type.search(proc_output)
                     if reg_path and reg_type:
@@ -299,13 +299,13 @@ def get_downloading_save_path(tasks:dict[str,dict]) -> dict[str,dict]:
                         if value["type"] == "目录":
                             value["sub_files"] = files_info
                             for sub_task, sub_v in value["sub_files"].items():
-                                sub_v["path"] = value["path"] + sub_task.replace(task, "")
+                                sub_v["path"] = value["path"] + '/' + sub_v["filename"]
                         else:
                             value.update(files_info)
                         break
 
             proc.send_signal(signal.SIGINT)
-            for i in range(0, MAX_SLEEP_TIME):
+            for i in range(0, TEST_TIMEOUT):
                 sleep(1)
                 if proc.poll() is not None: break
             else:
@@ -313,7 +313,9 @@ def get_downloading_save_path(tasks:dict[str,dict]) -> dict[str,dict]:
 
         if not value: del_tasks.append(task)
 
-    for key in del_tasks: del tasks[key]
+    for key in del_tasks:
+        del tasks[key]
+        print("task get file info failed: %s" % key)
 
     delete_temp_dir(temp_save)
     return tasks
