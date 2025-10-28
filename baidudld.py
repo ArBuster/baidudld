@@ -12,7 +12,7 @@ from time import sleep
 import shutil
 import hashlib
 
-logger = logging.getLogger("baidudld")
+logger = logging.getLogger(os.path.splitext(os.path.basename(__file__))[0])
 
 Global_Options = {
     "daemon": False,
