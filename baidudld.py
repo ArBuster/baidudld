@@ -287,7 +287,7 @@ def get_downloading_save_path(tasks:dict[str,dict]) -> dict[str,dict]:
             proc = subprocess.Popen(
                 cmd, stdout=f_temp, stderr=subprocess.STDOUT, encoding="utf8")
 
-            for i in range(0, 10):
+            for i in range(0, 15):
                 sleep(1)
                 with open(baidudld_temp, "r") as f:
                     proc_output = f.read()
