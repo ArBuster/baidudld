@@ -494,7 +494,8 @@ def check_task_complete(tasks:dict[str, dict]) -> dict[str, dict]:
     def test_task_complete(path:str, size:int) -> bool:
         return (os.path.exists(path) and
                 not os.path.exists(path + R".BaiduPCS-Go-downloading")
-                and os.path.getsize(path) == size)
+                #and os.path.getsize(path) == size
+                )
 
     complete_tasks = dict()
     for task, info in tasks.items():
