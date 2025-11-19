@@ -273,33 +273,34 @@ def get_downloading_save_path(tasks:dict[str,dict]) -> dict[str,dict]:
 
 
     create_temp_dir(temp_save)
+
     del_tasks = list()
+    re_path = re.compile(R"将会下载到路径:\s*%s/([^/]+)/" % re.escape(temp_save))
+    baidudld_temp = os.path.join(RECORD_PATH, "baidudld.temp")
+
     for task, value in tasks.items():
         if value: continue
 
-        re_path = re.compile(R"将会下载到路径:\s*%s/([^/]+)/" % re.escape(temp_save))
         re_type = re.compile(R"类型\s+(文件|目录)\s+(文件|目录)路径\s+%s\s+(文件|目录)名称"
                              % re.escape(task))
 
-        baidudld_temp = os.path.join(RECORD_PATH, "baidudld.temp")
         with open(baidudld_temp, "w") as f_temp:
             cmd = ["baidupcs", "d", task]
             proc = subprocess.Popen(
                 cmd, stdout=f_temp, stderr=subprocess.STDOUT, encoding="utf8")
 
-            for i in range(0, 15):
-                sleep(1)
-                with open(baidudld_temp, "r") as f:
+            with open(baidudld_temp, "r") as f:
+                for i in range(0, 45):
+                    f.seek(0)
+                    sleep(1)
                     proc_output = f.read()
                     reg_path, reg_type = re_path.search(proc_output), re_type.search(proc_output)
-                    if reg_path and reg_type:
+                    if reg_path and reg_type and "app_id" in proc_output:
                         value["type"] = reg_type.group(1)
                         value["path"] = os.path.join(SAVE_DIR, reg_path.group(1), os.path.basename(task))
                         files_info = get_files_info(proc_output, value["type"])
                         if value["type"] == "目录":
                             value["sub_files"] = files_info
-                            for sub_task, sub_v in value["sub_files"].items():
-                                sub_v["path"] = value["path"] + sub_task[len(task):]
                         else:
                             value.update(files_info)
                         break
@@ -316,6 +317,12 @@ def get_downloading_save_path(tasks:dict[str,dict]) -> dict[str,dict]:
     for key in del_tasks:
         del tasks[key]
         print("task get file info failed: %s" % key)
+
+    for t, v in tasks.items():
+        if "sub_files" in v:
+            v["sub_files"] = get_downloading_save_path(v["sub_files"])
+            for sub_t, sub_v in v["sub_files"].items():
+                sub_v["path"] = v["path"] + sub_t[len(t):]
 
     delete_temp_dir(temp_save)
     return tasks
@@ -339,18 +346,17 @@ def get_files_info(proc_output:str, download_type:str) -> dict[str, dict]:
                 all_tasks.insert(i, task)
 
         if all_tasks:
-            ret = get_downloading_save_path({t: {} for t in all_tasks})
+            ret = {t: {} for t in all_tasks}
         return ret
 
 
     reg_info = R"文件名称\s+(.+)\s+文件大小\s+(\d+).*\s+md5[^0-9a-z]*([0-9a-z]{32})"
-    file_info = re.findall(reg_info, proc_output)
-    for info in file_info:
-        ret = {
-            "filename": info[0].strip(),
-            "size": int(info[1]),
-            "md5": info[2]
-        }
+    file_info_match = re.search(reg_info, proc_output)
+    ret = {
+        "filename": file_info_match.group(1).strip(),
+        "size": int(file_info_match.group(2)),
+        "md5": file_info_match.group(3)
+    }
 
     return ret
 
@@ -494,8 +500,7 @@ def check_task_complete(tasks:dict[str, dict]) -> dict[str, dict]:
     def test_task_complete(path:str, size:int) -> bool:
         return (os.path.exists(path) and
                 not os.path.exists(path + R".BaiduPCS-Go-downloading")
-                #and os.path.getsize(path) == size
-                )
+                and os.path.getsize(path) == size)
 
     complete_tasks = dict()
     for task, info in tasks.items():
