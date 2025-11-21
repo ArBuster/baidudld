@@ -13,16 +13,17 @@ import shutil
 import hashlib
 
 logger = logging.getLogger(os.path.splitext(os.path.basename(__file__))[0])
+set_logger_level_take_effect = True
+LOG_LEVEL = logging.INFO
 
 Global_Options = {
     "daemon": False,
     "verbose": False
 }
 
-TEST_TIMEOUT=3
-SAVE_DIR=""
-RECORD_PATH=os.path.join(os.environ["HOME"], ".config/BaiduPCS-Go")
-
+TEST_TIMEOUT = 3
+SAVE_DIR = ""
+RECORD_PATH = os.path.join(os.environ["HOME"], ".config/BaiduPCS-Go")
 
 def print_usage():
     name=os.path.basename(__file__).split('.')[0]
@@ -39,6 +40,11 @@ def print_usage():
     print("\n    eg: start -e 1,3,5 xxx.rar.part${%d} means download xxx.rar.part1, part3, part5")
     print("\n    list [ -d | -r ] downloading | removed tasks")
     print("\n    remove/restore [-all -e n-m | 1,2,3] (task1 task2 ...)\n")
+
+
+def set_logger_level(log_level):
+    if set_logger_level_take_effect:
+        logger.setLevel(log_level)
 
 
 def test_run() -> tuple:
@@ -70,7 +76,7 @@ def get_savedir():
 
 # 退出下载进程，成功返回True
 def stop_task(log_level=logging.INFO) -> bool:
-    logger.setLevel(log_level)
+    set_logger_level(log_level)
     logger.info("stopping baidupcs ...")
 
     pids, ret = test_run(), True
@@ -186,24 +192,24 @@ def load_task_record(category:str="downloading") -> dict[str,dict]:
 
 # 开始下载任务，更新任务列表
 def download_multiple_files(argv:list[str], log_level=logging.INFO) -> bool:
+    set_logger_level(log_level)
     if not test_login(log_level):
         return False
     
-    ret = True
     tasks = load_task_record()
     for a in argv:
         while a[-1] == '/' and len(a) > 1: a = a[:-1]
         if a not in tasks:
             tasks[a] = dict()
 
-    if not stop_task(logging.WARN) or not tasks:
+    if not tasks:
         logger.info("no task to start.")
-        return ret
+        return False
 
-    logger.setLevel(log_level)
     logger.info("tasks starting ...")
 
-    tasks = get_downloading_save_path(tasks)
+    cdfi = CollectDownloadFilesInfo()
+    tasks = cdfi.get_downloading_save_path(tasks)
     tasks = check_task_complete(tasks)
     if tasks:
         logger.info("These tasks will be start:")
@@ -212,7 +218,10 @@ def download_multiple_files(argv:list[str], log_level=logging.INFO) -> bool:
         logger.info("")
     else:
         logger.info("All tasks done. there is no task to be start.")
-        return ret
+        return False
+
+    if not stop_task(logging.WARN):
+        return False
 
     dt = list(tasks.keys())
     dt.sort()
@@ -234,7 +243,6 @@ def download_multiple_files(argv:list[str], log_level=logging.INFO) -> bool:
         update_task_record(tasks)
         logger.info("tasks start success.")
     else:
-        ret = False
         if Global_Options["verbose"]:
             logger.critical("tasks start failed. subprocess.run stdout:\n")
             with open(os.path.join(SAVE_DIR, "baidupcs_output.txt"), "r") as f:
@@ -242,123 +250,135 @@ def download_multiple_files(argv:list[str], log_level=logging.INFO) -> bool:
         else:
             print("tasks start failed. use --verbose to get more information\n")
 
-    return ret
+    return success
 
 
-# 记录任务下载保存的位置
-def get_downloading_save_path(tasks:dict[str,dict]) -> dict[str,dict]:
-    temp_save = os.path.join(SAVE_DIR, "baidudld_temp")
-    def create_temp_dir(temp_save:str):
-        if not os.path.exists(temp_save):
-            os.mkdir(temp_save)
+# 收集下载任务的文件信息
+class CollectDownloadFilesInfo:
+    def __init__(self):
+        self._temp_save = os.path.join(SAVE_DIR, "baidudld_temp")
+
+    def  _create_temp_dir(self):
+        if not os.path.exists(self._temp_save):
+            os.mkdir(self._temp_save)
         with open(os.path.join(RECORD_PATH, "pcs_config.json"), "r+") as f:
             conf = f.read()
-            if temp_save not in conf:
-                conf = conf.replace(SAVE_DIR, temp_save)
+            if self._temp_save not in conf:
+                conf = conf.replace(SAVE_DIR, self._temp_save)
                 f.seek(0)
                 f.truncate(0)
                 f.write(conf)
                 f.flush()
 
-    def delete_temp_dir(temp_save: str):
-        if os.path.exists(temp_save):
+    def _delete_temp_dir(self):
+        if os.path.exists(self._temp_save):
             with open(os.path.join(RECORD_PATH, "pcs_config.json"), "r+") as f:
                 conf = f.read()
-                conf = conf.replace(temp_save, SAVE_DIR)
+                conf = conf.replace(self._temp_save, SAVE_DIR)
                 f.seek(0)
                 f.truncate(0)
                 f.write(conf)
                 f.flush()
-            shutil.rmtree(temp_save)
+            shutil.rmtree(self._temp_save)
 
+    # 记录任务下载保存的位置
+    def get_downloading_save_path(self, tasks: dict[str, dict]) -> dict[str, dict]:
+        self._create_temp_dir()
+        result = self._get_downloading_save_path(tasks)
+        self._delete_temp_dir()
+        return result
 
-    create_temp_dir(temp_save)
+    def _get_downloading_save_path(self, tasks:dict[str,dict]) -> dict[str,dict]:
+        del_tasks = list()
+        re_path = re.compile(R"将会下载到路径:\s*%s/([^/]+)/" % re.escape(self._temp_save))
+        baidudld_temp = os.path.join(RECORD_PATH, "baidudld.temp")
 
-    del_tasks = list()
-    re_path = re.compile(R"将会下载到路径:\s*%s/([^/]+)/" % re.escape(temp_save))
-    baidudld_temp = os.path.join(RECORD_PATH, "baidudld.temp")
+        for task, value in tasks.items():
+            if value: continue
 
-    for task, value in tasks.items():
-        if value: continue
+            re_type = re.compile(R"类型\s+(文件|目录)\s+(文件|目录)路径\s+%s\s+(文件|目录)名称"
+                                 % re.escape(task))
 
-        re_type = re.compile(R"类型\s+(文件|目录)\s+(文件|目录)路径\s+%s\s+(文件|目录)名称"
-                             % re.escape(task))
+            with open(baidudld_temp, "w") as f_temp:
+                cmd = ["baidupcs", "d", task]
+                proc = subprocess.Popen(
+                    cmd, stdout=f_temp, stderr=subprocess.STDOUT, encoding="utf8")
 
-        with open(baidudld_temp, "w") as f_temp:
-            cmd = ["baidupcs", "d", task]
-            proc = subprocess.Popen(
-                cmd, stdout=f_temp, stderr=subprocess.STDOUT, encoding="utf8")
+                with open(baidudld_temp, "r") as f:
+                    for i in range(0, 45):
+                        f.seek(0)
+                        sleep(1)
+                        proc_output = f.read()
+                        reg_path, reg_type = re_path.search(proc_output), re_type.search(proc_output)
+                        if reg_path and reg_type and "app_id" in proc_output:
+                            value["type"] = reg_type.group(1)
+                            value["path"] = os.path.join(SAVE_DIR, reg_path.group(1), os.path.basename(task))
+                            files_info = self._get_files_info(proc_output, value["type"])
+                            if value["type"] == "目录":
+                                value["sub_files"] = files_info
+                            else:
+                                value.update(files_info)
+                            break
 
-            with open(baidudld_temp, "r") as f:
-                for i in range(0, 45):
-                    f.seek(0)
+                proc.send_signal(signal.SIGINT)
+                for i in range(0, TEST_TIMEOUT):
                     sleep(1)
-                    proc_output = f.read()
-                    reg_path, reg_type = re_path.search(proc_output), re_type.search(proc_output)
-                    if reg_path and reg_type and "app_id" in proc_output:
-                        value["type"] = reg_type.group(1)
-                        value["path"] = os.path.join(SAVE_DIR, reg_path.group(1), os.path.basename(task))
-                        files_info = get_files_info(proc_output, value["type"])
-                        if value["type"] == "目录":
-                            value["sub_files"] = files_info
-                        else:
-                            value.update(files_info)
+                    if proc.poll() is not None: break
+                else:
+                    proc.kill()
+
+            if not value: del_tasks.append(task)
+
+        for key in del_tasks:
+            del tasks[key]
+            print("task get file info failed: %s" % key)
+
+        for t, v in tasks.items():
+            if "sub_files" in v:
+                sub_tasks = dict()
+                for sub_t, sub_v in v["sub_files"].items():
+                    if not sub_v: sub_tasks[sub_t] = sub_v
+
+                if sub_tasks:
+                    sub_tasks = self._get_downloading_save_path(sub_tasks)
+                    for sub_t, sub_v in sub_tasks.items():
+                        sub_v["path"] = v["path"] + sub_t[len(t):]
+                    v["sub_files"].update(sub_tasks)
+
+        return tasks
+
+
+    # 记录下载文件的大小Byte，md5校验和，如果是目录，递归记录目录中下载的文件
+    def _get_files_info(self, proc_output:str, download_type:str) -> dict[str, dict]:
+        ret = dict()
+
+        if download_type == "目录":
+            all_tasks = re.findall(R"加入下载队列:\s*(.+)", proc_output)
+
+            # 去掉目录递归的任务
+            n = len(all_tasks) - 1
+            for i in range(n, -1, -1):
+                task = all_tasks.pop(i)
+                for t in all_tasks:
+                    if task in t:
                         break
+                else:
+                    all_tasks.insert(i, task)
 
-            proc.send_signal(signal.SIGINT)
-            for i in range(0, TEST_TIMEOUT):
-                sleep(1)
-                if proc.poll() is not None: break
-            else:
-                proc.kill()
-
-        if not value: del_tasks.append(task)
-
-    for key in del_tasks:
-        del tasks[key]
-        print("task get file info failed: %s" % key)
-
-    for t, v in tasks.items():
-        if "sub_files" in v:
-            v["sub_files"] = get_downloading_save_path(v["sub_files"])
-            for sub_t, sub_v in v["sub_files"].items():
-                sub_v["path"] = v["path"] + sub_t[len(t):]
-
-    delete_temp_dir(temp_save)
-    return tasks
+            if all_tasks:
+                ret = {t: {} for t in all_tasks}
+            return ret
 
 
-# 记录下载文件的大小Byte，md5校验和，如果是目录，递归记录目录中下载的文件
-def get_files_info(proc_output:str, download_type:str) -> dict[str, dict]:
-    ret = dict()
+        reg_info = R"文件名称\s+(.+)\s+文件大小\s+(\d+).*\s+md5[^0-9a-z]*([0-9a-z]{32})"
+        file_info_match = re.search(reg_info, proc_output)
+        ret = {
+            "filename": file_info_match.group(1).strip(),
+            "size": int(file_info_match.group(2)),
+            "md5": file_info_match.group(3)
+        }
 
-    if download_type == "目录":
-        all_tasks = re.findall(R"加入下载队列:\s*(.+)", proc_output)
-
-        # 去掉目录递归的任务
-        n = len(all_tasks) - 1
-        for i in range(n, -1, -1):
-            task = all_tasks.pop(i)
-            for t in all_tasks:
-                if task in t:
-                    break
-            else:
-                all_tasks.insert(i, task)
-
-        if all_tasks:
-            ret = {t: {} for t in all_tasks}
         return ret
-
-
-    reg_info = R"文件名称\s+(.+)\s+文件大小\s+(\d+).*\s+md5[^0-9a-z]*([0-9a-z]{32})"
-    file_info_match = re.search(reg_info, proc_output)
-    ret = {
-        "filename": file_info_match.group(1).strip(),
-        "size": int(file_info_match.group(2)),
-        "md5": file_info_match.group(3)
-    }
-
-    return ret
 
 
 # Byte单位转换，转换成KB/MB/GB，要求数值大于1，用于打印时直观显示文件大小
@@ -565,9 +585,10 @@ def write_hash_file(f:TextIOWrapper, file_info:dict):
 
 
 def resume_task(log_level=logging.INFO):
-    logger.setLevel(log_level)
+    set_logger_level(log_level)
     logger.info("restoring tasks ...\n")
-    download_multiple_files([], log_level)
+    if not download_multiple_files([], log_level):
+        logger.info("start task failed.")
 
 
 # 根据task_removed记录，清理未完成被移除的下载任务文件
@@ -624,7 +645,7 @@ def clean_tasks():
 
 
 def test_login(log_level=logging.INFO) -> bool:
-    logger.setLevel(log_level)
+    set_logger_level(log_level)
 
     cmd = ("baidupcs", "quota")
     ps_ret = subprocess.run(
@@ -656,7 +677,7 @@ def run_as_daemon():
     signal.signal(signal.SIGTERM, handler)
     signal.signal(signal.SIGINT, handler)
     while True:
-        sleep(15)
+        sleep(300)
         if load_task_record() and not test_run():
             resume_task(logging.WARN)
 
@@ -676,7 +697,7 @@ def read_global_options(argv: list[str]) -> list[str]:
 
 
 if __name__ == "__main__":
-    logging.basicConfig(format="%(message)s", level=logging.INFO)
+    logging.basicConfig(format="%(message)s", level=LOG_LEVEL)
 
     argv = read_global_options(sys.argv)
     get_savedir()
