@@ -208,9 +208,9 @@ def download_multiple_files(argv:list[str], log_level=logging.INFO) -> bool:
 
     logger.info("tasks starting ...")
 
+    tasks = check_task_complete(tasks)
     cdfi = CollectDownloadFilesInfo()
     tasks = cdfi.get_downloading_save_path(tasks)
-    tasks = check_task_complete(tasks)
     if tasks:
         logger.info("These tasks will be start:")
         for t in tasks:
