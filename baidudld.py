@@ -524,6 +524,7 @@ def check_task_complete(tasks:dict[str, dict]) -> dict[str, dict]:
 
     complete_tasks = dict()
     for task, info in tasks.items():
+        if not info: continue
         if info["type"] == "文件":
             if test_task_complete(info["path"], info["size"]):
                 complete_tasks |= {task: info}
