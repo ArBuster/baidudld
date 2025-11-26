@@ -47,7 +47,7 @@ def set_logger_level(log_level):
         logger.setLevel(log_level)
 
 
-def test_run() -> tuple:
+def test_run() -> tuple[int, ...]:
     cmd = ("pgrep", "-f", "baidupcs d ")
     ps_ret = subprocess.run(
         cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, encoding="utf8")
@@ -404,9 +404,19 @@ def convert_file_size(size:int) -> str:
     return ret + unit_str
 
 
+# 将任务顺序化存储于列表中，方便按编号检索
+def sequence_tasks(tasks:dict[str:dict]) -> tuple[dict, ...]:
+    tasks_list = list()
+    for k, v in tasks.items():
+        tasks_list.append({k: v})
+
+    return tuple(tasks_list)
+
+
 # 打印任务进度
 def list_tasks(category:str="downloading"):
     tasks = load_task_record(category)
+    task_array = sequence_tasks(tasks)
     if not tasks:
         print("There is no task %s." % category)
         return
@@ -415,8 +425,9 @@ def list_tasks(category:str="downloading"):
     print("files      download   total    percent\n")
 
     total_files, total_download, total_size = 0, 0, 0
-    for task, info in tasks.items():
-        print("task: " + task)
+    for i in range(0, len(task_array)):
+        task, info = next(iter(task_array[i].items()))
+        print(f"[{i + 1}]  " + task)
         downloaded_size = 0
         if info["type"] == "文件":
             full_size = info["size"]
@@ -453,62 +464,63 @@ def list_tasks(category:str="downloading"):
     print("%d files    %s | %s  %s" % (total_files, total_download, total_size, "{:.2f}%".format(total_precent)))
 
 
-# 移除指定的未完成的下载任务，记录进task_removed，更新task_record
-def remove_task(argv:list[str]):
-    tasks, remove_new = load_task_record(), dict()
+# remove_task和restore_task的实现
+def operate_tasks_record(argv:list[str], operate_name:str):
+    match operate_name:
+        case "remove":
+            src_category = "downloading"
+            dst_category = "removed"
+        case "restore":
+            src_category = "removed"
+            dst_category = "downloading"
+        case _:
+            return
+
+    src, dst_new = load_task_record(src_category), dict()
+    task_array = sequence_tasks(src)
 
     if argv[0] == "-e":
         argv = expand_suffix(argv[1:])
 
     if argv[0] == "-all":
-        remove_new |= tasks
-        print("\n%d tasks are removed." % len(tasks))
-        tasks.clear()
+        dst_new |= src
+        src.clear()
     else:
         for a in argv:
-            if a in tasks:
-                remove_new |= {a: tasks.pop(a)}
-                print("task %s is removed." % a)
+            if a in src:
+                dst_new |= {a: src.pop(a)}
+            elif a.isdigit():
+                n = int(a)
+                if 0 < n <= len(task_array):
+                    key, value = next(iter(task_array[n - 1].items()))
+                    dst_new |= {key: src.pop(key)}
+                else:
+                    print(f"number: {n} is out of range.")
             else:
-                print("%s is not in the task." % a)
+                print(f"{a} is not in the record.")
 
-    if not remove_new:
+    if not dst_new:
         return
 
-    update_task_record(tasks)
-    remove_new |= load_task_record("removed")
-    update_task_record(remove_new, "removed")
+    for key in dst_new.keys():
+        print(key)
+    print(f"\n{len(dst_new)} tasks are {operate_name}d.")
+
+    update_task_record(src, src_category)
+    dst_new |= load_task_record(dst_category)
+    update_task_record(dst_new, dst_category)
 
     print("\nuse resume to take effect.")
+
+
+# 移除指定的未完成的下载任务，记录进task_removed，更新task_record
+def remove_task(argv:list[str]):
+    operate_tasks_record(argv, "remove")
 
 
 # 恢复指定的被移除的下载任务，记录进task_record，更新task_removed
 def restore_task(argv:list[str]):
-    removed, tasks_new = load_task_record("removed"), dict()
-
-    if argv[0] == "-e":
-        argv = expand_suffix(argv[1:])
-
-    if argv[0] == "-all":
-        tasks_new |= removed
-        print("\n%d tasks are restored." % len(removed))
-        removed.clear()
-    else:
-        for a in argv:
-            if a in removed:
-                tasks_new |= {a: removed.pop(a)}
-                print("task %s is restored." % a)
-            else:
-                print("%s is not in the task." % a)
-
-    if not tasks_new:
-        return
-
-    update_task_record(removed, "removed")
-    tasks_new |= load_task_record()
-    update_task_record(tasks_new)
-
-    print("\nuse resume to take effect.")
+    operate_tasks_record(argv, "restore")
 
 
 # 检查任务进度，下载完成的文件移除任务记录
