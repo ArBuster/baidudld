@@ -504,7 +504,7 @@ def operate_tasks_record(argv:list[str], operate_name:str):
 
     for key in dst_new.keys():
         print(key)
-    print(f"\n{len(dst_new)} tasks are {operate_name}d.")
+    print(f"\n{len(dst_new)} task {operate_name}d.")
 
     update_task_record(src, src_category)
     dst_new |= load_task_record(dst_category)
